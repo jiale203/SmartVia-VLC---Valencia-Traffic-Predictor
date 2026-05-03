@@ -83,15 +83,10 @@ User (Browser)
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.10+
-- pip
-
 ### Local Setup
 
 ```bash
-git clone https://github.com/<your-username>/smartvia-vlc.git
+git clone https://github.com/jiale203/SmartVia-VLC---Valencia-Traffic-Predictor.git
 cd smartvia-vlc
 
 pip install flask flask-cors pandas numpy lightgbm joblib scikit-learn gunicorn
