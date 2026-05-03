@@ -137,5 +137,11 @@ Configure Nginx as a reverse proxy on port 80 to forward requests to Gunicorn.
 ## License
 
 This project is licensed under the [GNU License](LICENSE).
+
 ## Authors
-Third Year Students from Grado en Ciencia de Datos -- Universitat Politecnica de Valencia (UPV)
+-Jiale Mao
+-Vicente Llacer
+-Miguel Carrañas
+-Ivette 
+-Lucia Fuentes
+-Maria
