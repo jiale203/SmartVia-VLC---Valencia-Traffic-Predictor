@@ -1,4 +1,4 @@
-<p align="center">
+<img width="1600" height="930" alt="image" src="https://github.com/user-attachments/assets/1ecb4c3d-a073-49f1-9b4a-71fc4882f0b6" /><p align="center">
   <img src="smartvia.png" alt="SmartVia VLC" width="500">
 </p>
 
@@ -22,7 +22,7 @@
 SmartVia VLC is a machine learning-based web application that predicts traffic congestion across **144 road segments** in Valencia, Spain. Users can select a date, time, weather condition, and special events to visualize predicted traffic states on an interactive map. We have developed a website, www.smartviavlc.com, and it is deployed via AWS.
 
 This project was developed as part of **Proyecto III** in the **Grado en Ciencia de Datos** at the **Universitat Politecnica de Valencia (UPV)**.
-
+<img src="smartvia.png" alt="SmartVia VLC" width="500">
 ## Features
 
 - **ML-Powered Predictions** -- LightGBM model trained on historical traffic data with lag features and SMOTE balancing
