@@ -100,7 +100,7 @@ Visit `http://localhost:5002` in your browser.
 ## AWS Deployment
 
   The application is deployed on **AWS EC2** with the following architecture:
-
+```
   Client (Browser)
         │
         ▼
@@ -114,7 +114,7 @@ Visit `http://localhost:5002` in your browser.
                                               │
                                       LightGBM Model
                                       Preprocessors (.joblib)
-
+```
   - Gunicorn serves the Flask API as a production WSGI server
   - Nginx acts as a reverse proxy, forwarding HTTP/HTTPS requests to the application
   - A systemd service keeps the application running and auto-restarts on server reboot
@@ -127,10 +127,10 @@ Visit `http://localhost:5002` in your browser.
 |--------------------|-------------------------------------------|
 | Algorithm          | LightGBM (gradient boosted trees)         |
 | Training Data      | ~400K samples (SMOTE balanced)            |
-| Features           | 39 (temporal, weather, lag, events)        |
+| Features           | 44 (temporal, weather, lag, events)        |
 | Lag Features       | estado_lag_1, lag_2, lag_4, rolling_4/8    |
-| Congestion Threshold | 0.8 probability                         |
-| Macro F1 Score     | 0.8762                                    |
+| Congestion Threshold | 0.87 probability                         |
+| Macro F1 Score     | 0.9051                                    |
 | Prediction Interval | 15 minutes                               |
 
 ### Key Features Used
@@ -154,13 +154,13 @@ Visit `http://localhost:5002` in your browser.
 
 ## Data preprocessing
 
-
+```
   Notebooks → Agregacion2.csv (traffic) + climatologia_2023_2025.csv (weather)
                                         ↓
                              merge_traffic_weather.py → datos_combinados_limpios.csv (traffic + weather merged)
                                                                         ↓
                                                                         c.py → dataset_final.csv (+ holidays) → dataset_final.zip
-          
+  ```        
 
 ## Feature variables
 
@@ -244,20 +244,43 @@ Visit `http://localhost:5002` in your browser.
   - All artifacts are serialized using joblib and saved as .joblib files, which Flask loads at startup to transform raw
   user inputs into the exact feature format the model expects, ensuring consistency between training and prediction
 
-### Evaluation Results (Test Set — 2025)
+  ## Evaluation Results (Test Set — 2025)
+
+  Optimal threshold determined at **0.87** via threshold sweep optimization.
+  
+  The default classification threshold of 0.5 is not optimal for this model due to the use of SMOTE during training.
+  SMOTE balances the training data to a 50/50 distribution, but the real data is approximately 99% fluido and 1%
+  no_fluido. As a result, the model's output probabilities are calibrated to the artificial balanced distribution rather
+  than the real-world distribution, causing it to over-predict congestion at lower thresholds.
+
+  To find the optimal threshold, a sweep was performed across values from 0.05 to 0.99 in increments of 0.01, evaluating 
+  Macro F1 at each step. The optimal threshold was found at **0.87**, improving Macro F1 from 0.8762 (at 0.5) to
+  **0.9051**, while reducing false alarms from 7,929 to 3,401.
+
+  | Threshold | Precision (NF) | Recall (NF) | Macro F1 | False Alarms | Missed |
+  |-----------|---------------|-------------|----------|-------------|--------|
+  | 0.50 | 0.69 | 0.84 | 0.8762 | 7,929 | 3,509 |
+  | **0.87** | **0.83** | **0.79** | **0.9051** | **3,401** | **4,376** |
+
 
   | Metric | Fluido (0) | No Fluido (1) |
   |--------|-----------|---------------|
-  | Precision | 1.00 | 0.69 |
-  | Recall | 0.99 | 0.84 |
-  | F1-Score | 0.99 | 0.76 |
+  | Precision | 1.00 | 0.83 |
+  | Recall | 1.00 | 0.79 |
+  | F1-Score | 1.00 | 0.81 |
 
   | Overall Metric | Value |
   |----------------|-------|
   | Accuracy | 0.99 |
-  | Macro F1 Score | 0.8762 |
-  | Congestion Threshold | 0.5 |
+  | Macro F1 Score | 0.9051 |
+  | Optimal Threshold | 0.87 |
 
+  | Confusion Matrix | Predicted Fluido | Predicted No Fluido |
+  |------------------|-----------------|-------------------|
+  | **Actual Fluido** | 1,241,010 | 3,401 |
+  | **Actual No Fluido** | 4,376 | 16,947 |
+
+  
   ## Limitations
 
   - **Probability Calibration**: The model is trained on SMOTE-balanced data (50/50), but the real distribution is
