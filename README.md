@@ -133,18 +133,31 @@ Visit `http://localhost:5002` in your browser.
 | Macro F1 Score     | 0.9051                                    |
 | Prediction Interval | 15 minutes                               |
 
-### Key Features Used
+## Feature Importance (Top 15 — Gain)
 
-| Feature              | Importance   |
-|----------------------|-------------|
-| estado_rolling_8     | Very High   |
-| estado_lag_1         | Very High   |
-| hour_sin / hour_cos  | High        |
-| minutes              | High        |
-| Road (encoded)       | Medium      |
-| Weather (tmed, sol)  | Medium      |
-| Events (Fallas, etc.)| Low-Medium  |
+  | Rank | Feature | Importance |
+  |------|---------|-----------|
+  | 1 | `estado_rolling_8` | 2,092,787 |
+  | 2 | `estado_lag_1` | 970,963 |
+  | 3 | `hour_sin` | 406,024 |
+  | 4 | `hour_cos` | 348,116 |
+  | 5 | `estado_rolling_4` | 220,608 |
+  | 6 | `estado_count_4` | 218,760 |
+  | 7 | `Denominació / Denominación` | 213,892 |
+  | 8 | `minutes` | 143,684 |
+  | 9 | `School_holiday` | 93,708 |
+  | 10 | `Day_of_week` | 66,664 |
+  | 11 | `is_night` | 61,841 |
+  | 12 | `week_of_year` | 54,775 |
+  | 13 | `tmin` | 49,912 |
+  | 14 | `tmed` | 47,732 |
+  | 15 | `day_cos` | 45,081 |
 
+  Lag features dominate the top positions, with `estado_rolling_8` (2-hour rolling average) contributing more than twice
+  the importance of the next feature. Temporal features (`hour_sin`, `hour_cos`, `minutes`) rank highly, confirming
+  that time of day is a strong predictor of congestion. Weather and event features have lower but meaningful
+  contributions.
+  
 ## Data Sources
 
 - **Traffic Data** -- Ajuntament de Valencia open data portal (real-time traffic sensors)
