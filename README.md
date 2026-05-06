@@ -24,6 +24,7 @@ SmartVia VLC is a machine learning-based web application that predicts traffic c
 This project was developed as part of **Proyecto III** in the **Grado en Ciencia de Datos** at the **Universitat Politecnica de Valencia (UPV)**.
 
 <img src="p1.jpeg"  width="500">
+
 ## Features
 
 - **ML-Powered Predictions** -- LightGBM model trained on historical traffic data with lag features and SMOTE balancing
@@ -52,7 +53,7 @@ User (Browser)
 | Component       | Technology                          |
 |-----------------|-------------------------------------|
 | ML Model        | LightGBM (gradient boosting)        |
-| Data Balancing  | SMOTE                               |
+| Data Balancing  | SMOTE + undersampling               |
 | Backend         | Flask + Gunicorn                    |
 | Frontend        | HTML/CSS/JS + Leaflet.js            |
 | Map Tiles       | Jawg Maps (Light & Dark)            |
@@ -69,7 +70,6 @@ User (Browser)
 ├── smartvia.png                 # App logo (PNG)
 ├── train_lightgbm_lag_v2.py     # Model training script
 ├── save_preprocessors_lag.py    # Generates .joblib preprocessors
-├── split_data.py                # Train/test data split
 ├── lightgbm_lag_v2_model.txt    # Trained LightGBM model
 ├── historical.joblib            # Historical traffic probabilities
 ├── historical_fallback.joblib   # Fallback probabilities
@@ -97,13 +97,29 @@ python app3.py
 
 Visit `http://localhost:5002` in your browser.
 
-### Production Deployment (AWS EC2)
+## AWS Deployment
 
-```bash
-gunicorn app3:app --bind 127.0.0.1:5002 --timeout 120 --workers 2
-```
+  The application is deployed on **AWS EC2** with the following architecture:
 
-Configure Nginx as a reverse proxy on port 80 to forward requests to Gunicorn.
+  Client (Browser)
+        │
+        ▼
+    Route 53 (DNS)
+        │
+        ▼
+    EC2 Instance (Ubuntu 22.04)
+        │
+        ▼
+    Nginx (port 80/443) ──► Gunicorn ──► Flask API (app3.py)
+                                              │
+                                      LightGBM Model
+                                      Preprocessors (.joblib)
+
+  - Gunicorn serves the Flask API as a production WSGI server
+  - Nginx acts as a reverse proxy, forwarding HTTP/HTTPS requests to the application
+  - A systemd service keeps the application running and auto-restarts on server reboot
+  - Domain managed through AWS Route 53 with A records pointing to the EC2 public IP
+  - SSL/TLS encryption enabled via Let's Encrypt (Certbot) for secure HTTPS access
 
 ## Model Details
 
@@ -135,14 +151,111 @@ Configure Nginx as a reverse proxy on port 80 to forward requests to Gunicorn.
 - **Weather Data** -- AEMET (Agencia Estatal de Meteorologia)
 - **Holiday/Event Data** -- Manually curated calendar of local events
 
+## Feature variables
+
+  **Road Identifier (1)**
+
+  | Feature | Description |
+  |---------|-------------|
+  | `Denominació_/_Denominación` | Encoded name of the road segment (144 unique roads across Valencia) |
+
+  **Weather (5)**
+
+  | Feature | Description |
+  |---------|-------------|
+  | `tmed` | Mean daily temperature (°C) |
+  | `tmin` | Minimum daily temperature (°C) |
+  | `tmax` | Maximum daily temperature (°C) |
+  | `prec` | Daily precipitation (mm) |
+  | `sol` | Hours of sunshine |
+
+  **Temporal (14)**
+
+  | Feature | Description |
+  |---------|-------------|
+  | `minutes` | Minutes elapsed since midnight (0–1440) |
+  | `hour_sin`, `hour_cos` | Cyclical encoding of the hour to capture periodic patterns |
+  | `month`, `month_sin`, `month_cos` | Month of the year with cyclical encoding |
+  | `day`, `day_sin`, `day_cos` | Day of the month with cyclical encoding |
+  | `Day_of_week` | Encoded day of the week (lunes–domingo) |
+  | `week_of_year` | Week number within the year |
+  | `is_weekend` | Binary flag for Saturday/Sunday |
+  | `is_rush_hour` | Binary flag for peak traffic hours (7–9h and 17–20h) |
+  | `is_night` | Binary flag for nighttime hours (22–6h) |
+
+  **Seasons (4)**
+
+  | Feature | Description |
+  |---------|-------------|
+  | `Summer`, `Winter`, `Autumn`, `Spring` | Binary flags indicating the current season |
+
+  **Events (13)**
+
+  | Feature | Description |
+  |---------|-------------|
+  | `Public_holiday`, `School_holiday` | Binary flags for public and school holidays |
+  | `Fallas`, `Mascletá/Crida` | Binary flags for Valencia's Fallas festival and its daily firecracker event |
+  | `Football_Matches` | Binary flag for local football match days |
+  | `Marathons` | Binary flag for marathon events |
+  | `Festival_de_les_arts`, `Davis_Cup`, `Elections`, `Demonstrations`, `University_Entrance_Exams`, `BigSound_Concerts`,
+  `Roig_Arena_Events`, `San_Juan` | Binary flags for other local events |
+
+  **Lag Features — Historical Traffic State (6)**
+
+  | Feature | Description |
+  |---------|-------------|
+  | `estado_lag_1` | Traffic state 15 minutes prior |
+  | `estado_lag_2` | Traffic state 30 minutes prior |
+  | `estado_lag_4` | Traffic state 1 hour prior |
+  | `estado_rolling_4` | Rolling average of traffic state over the last 4 intervals (1 hour) |
+  | `estado_rolling_8` | Rolling average of traffic state over the last 8 intervals (2 hours) |
+  | `estado_count_4` | Count of congested intervals in the last 4 intervals (1 hour) |
+
+
+## Model Explaination
+
+  - The LightGBM model is trained on ~400,000 samples from traffic sensor data collected between 2023–2024, with 2025
+  reserved as the test set
+  - The dataset is heavily imbalanced (99% fluido vs 1% no_fluido), so a combination of random undersampling and SMOTE
+  balances the training data to a 50/50 distribution
+  - The model is trained for 500 boosting rounds using binary log-loss as the objective, with L1/L2 regularization to
+  prevent overfitting
+  - Lag features (estado_lag_1, estado_rolling_8, estado_count_4, etc.) are engineered by shifting and aggregating past
+  traffic states within each road segment to capture short-term temporal dependencies
+  - Continuous variables (temperature, precipitation, sunshine, cyclical time encodings) are standardized using
+  StandardScaler; categorical variables (road names, days of the week) are encoded using LabelEncoder
+  - After training, save_preprocessors_lag.py generates all preprocessing artifacts needed for deployment:
+    - Fitted LabelEncoder for road names and days of the week
+    - Fitted StandardScaler for continuous features
+    - List of 144 known roads
+    - Two historical probability tables containing average congestion rates per road, day of week, and time slot — used
+  to seed lag features during prediction
+  - All artifacts are serialized using joblib and saved as .joblib files, which Flask loads at startup to transform raw
+  user inputs into the exact feature format the model expects, ensuring consistency between training and prediction
+
+### Evaluation Results (Test Set — 2025)
+
+  | Metric | Fluido (0) | No Fluido (1) |
+  |--------|-----------|---------------|
+  | Precision | 1.00 | 0.69 |
+  | Recall | 0.99 | 0.84 |
+  | F1-Score | 0.99 | 0.76 |
+
+  | Overall Metric | Value |
+  |----------------|-------|
+  | Accuracy | 0.99 |
+  | Macro F1 Score | 0.8762 |
+  | Congestion Threshold | 0.5 |
+
+
 ## License
 
 This project is licensed under the [GNU License](LICENSE).
 
 ## Authors
--Jiale Mao
--Vicente Llacer
--Miguel Carrañas
--Ivette 
--Lucia Fuentes
--Maria
+- Jiale Mao
+- Vicente Llacer Llorca
+- Miguel Angel Carrañas
+- Ivette Mahmoud Yousef
+- Lucia Fuentes Pons
+- Maria Martinez
