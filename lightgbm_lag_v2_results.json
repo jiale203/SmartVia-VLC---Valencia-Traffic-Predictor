@@ -1,0 +1,6 @@
+{
+  "test_macro_f1": 0.8761878179046729,
+  "best_threshold": 0.87,
+  "boost_rounds": 500,
+  "changes": "removed class_weight and CV, SMOTE handles imbalance alone"
+}
