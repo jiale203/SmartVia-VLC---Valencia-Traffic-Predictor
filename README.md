@@ -151,6 +151,17 @@ Visit `http://localhost:5002` in your browser.
 - **Weather Data** -- AEMET (Agencia Estatal de Meteorologia)
 - **Holiday/Event Data** -- Manually curated calendar of local events
 
+
+## Data preprocessing
+
+
+  Notebooks → Agregacion2.csv (traffic) + climatologia_2023_2025.csv (weather)
+                                        ↓
+                             merge_traffic_weather.py → datos_combinados_limpios.csv (traffic + weather merged)
+                                                                        ↓
+                                                                        c.py → dataset_final.csv (+ holidays) → dataset_final.zip
+          
+
 ## Feature variables
 
   **Road Identifier (1)**
@@ -247,6 +258,29 @@ Visit `http://localhost:5002` in your browser.
   | Macro F1 Score | 0.8762 |
   | Congestion Threshold | 0.5 |
 
+  ## Limitations
+
+  - **Probability Calibration**: The model is trained on SMOTE-balanced data (50/50), but the real distribution is
+  approximately 99% fluido / 1% no_fluido. This means the model's output probabilities are calibrated to the artificial
+  distribution rather than reality, requiring a higher decision threshold (0.8) to compensate
+  - **No Real-Time Data**: The application does not have access to live traffic sensors. Instead, lag features are
+  approximated using historical average congestion probabilities per road, day of week, and time slot. Predictions would
+   be more accurate with real-time traffic feeds
+  - **Night Data Gap**: Traffic data between 1:00–6:00 was removed during preprocessing due to sensor inactivity. This
+  creates a mismatch in lag features at 7:00 AM — during training, the model references late-night data, while during
+  deployment, the historical lookup attempts to retrieve values from the deleted time range
+  - **Static Weather Presets**: Weather conditions are selected from fixed presets (clear, cloudy, rainy) rather than
+  fetched from a live weather API, which limits prediction accuracy for unusual weather conditions
+  - **Event Detection**: Special events (Fallas, marathons, etc.) must be manually selected by the user rather than
+  being automatically detected from an external calendar
+
+  ## Future Work
+
+  - Integrate a **live traffic API** from the Ajuntament de Valencia to replace historical seeds with real-time lag
+  features
+  - Connect a **real-time weather API** (AEMET OpenData) to automatically set weather parameters based on current or
+  forecasted conditions
+  - Add **route recommendation** functionality to suggest the least congested path between two points
 
 ## License
 
