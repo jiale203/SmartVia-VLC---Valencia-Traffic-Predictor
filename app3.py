@@ -143,7 +143,7 @@ def predict_road(road, start_time, weather, interval_minutes=15, num_steps=8):
                           lag_1, lag_2, lag_4, rolling_4, rolling_8, count_4)
 
         prob = float(model.predict(X)[0])
-        state = 1 if prob > 0.8 else 0
+        state = 1 if prob > 0.87 else 0
 
         predictions.append({
             "time": current_time.strftime("%H:%M"),
@@ -205,7 +205,7 @@ def predict():
         results[road] = {
             "probability": round(avg_prob, 4),
             "max_probability": round(max_prob, 4),
-            "state": 1 if avg_prob > 0.8 else 0,
+            "state": 1 if avg_prob > 0.87 else 0,
             "timeline": preds,
         }
 
