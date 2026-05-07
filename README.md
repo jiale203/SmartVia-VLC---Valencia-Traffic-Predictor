@@ -325,7 +325,7 @@ This project is licensed under the [GNU License](LICENSE).
 ## Authors
 - Jiale Mao
 - Vicente Llacer Llorca
+- Lucia Fuentes Pons
 - Miguel Angel Carrañas
 - Ivette Mahmoud Yousef
-- Lucia Fuentes Pons
 - Maria Martinez
