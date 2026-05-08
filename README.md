@@ -34,7 +34,6 @@ This project was developed as part of **Proyecto III** in the **Grado en Ciencia
 - **Multi-language** -- English, Spanish, Valencian, and Chinese
 - **Day/Night Mode** -- Toggle between light and dark map themes
 - **Responsive Design** -- Works on desktop and mobile devices
-- Hello World
   
 ## Architecture
 
