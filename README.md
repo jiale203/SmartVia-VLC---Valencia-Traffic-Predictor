@@ -1,10 +1,10 @@
-<img width="1600" height="930" alt="image" src="https://github.com/user-attachments/assets/1ecb4c3d-a073-49f1-9b4a-71fc4882f0b6" /><p align="center">
+<p align="center">
   <img src="smartvia.png" alt="SmartVia VLC" width="500">
 </p>
 
 <p align="center">
-  <strong>Real-time traffic congestion predictor for Valencia, Spain</strong><br>
-  Powered by LightGBM &middot; Flask &middot; Leaflet.js
+  <strong>1-hour-ahead traffic congestion prediction for 144 road segments in Valencia, Spain</strong><br>
+  LightGBM &middot; Flask &middot; Leaflet.js &middot; AWS
 </p>
 
 <p align="center">
@@ -15,319 +15,201 @@
   <img src="https://img.shields.io/badge/AWS-EC2-orange?logo=amazonaws" alt="AWS">
 </p>
 
----
+> **Status:** the public website (smartviavlc.com) has been taken offline because of hosting costs. You can still run the web app locally, see [Run the web app locally](#run-the-web-app-locally).
 
-Due to cost issues, we have decided to stop hosting the website anymore.
+<p align="center">
+  <img src="p1.jpeg" alt="SmartVia VLC web app showing congestion risk per road segment on a map of Valencia" width="800">
+</p>
 
 ## Overview
 
-SmartVia VLC is a machine learning-based web application that predicts traffic congestion across **144 road segments** in Valencia, Spain. Users can select a date, time, weather condition, and special events to visualize predicted traffic states on an interactive map. We have developed a website, www.smartviavlc.com, and it is deployed via AWS.
+SmartVia VLC (project name **METEO-TRAFFIC**) predicts whether each of Valencia's 144 monitored road segments will be congested one hour ahead. It was built by a team of six for **Proyecto III** of the **Grado en Ciencia de Datos** at the Universitat Politècnica de València (UPV).
 
-This project was developed as part of **Proyecto III** in the **Grado en Ciencia de Datos** at the **Universitat Politecnica de Valencia (UPV)**.
+The project set out to test whether weather, together with time and local events, helps forecast congestion. The main finding is that **weather adds no predictive signal**: almost all of it comes from each road's own recent traffic history.
 
-<img src="p1.jpeg"  width="500">
+## Key results
 
-## Features
+- **Final model:** LightGBM using only temporal and lag features plus the road-segment ID (22 features) reaches **Macro F1 = 0.8256** on the held-out 2025 test set (1,265,734 observations).
+- **Weather alone is no better than random** (Macro F1 = 0.50). All five weather variables have an absolute correlation below 0.01 with congestion.
+- **One feature does most of the work.** The road's traffic state one hour earlier (`estado_lag_4`) reaches Macro F1 = 0.78 on its own, almost the same as the original 39-feature model (0.79).
+- `time_since_last_congestion` accounts for **44% of the final model's total gain**.
+- The gradient-boosting models compared (HistGradientBoosting, XGBoost, CatBoost, LightGBM) all landed around Macro F1 = 0.80 with the original features, and HistGradientBoosting reproduces the ablation results within about 0.02. The ceiling comes from the data, not the algorithm.
 
-- **ML-Powered Predictions** -- LightGBM model trained on historical traffic data with lag features and SMOTE balancing
-- **Interactive Map** -- Leaflet.js map with color-coded road segments indicating congestion risk
-- **Weather Integration** -- Predictions adjust for clear, cloudy, and rainy conditions
-- **Event Awareness** -- Accounts for Fallas, school holidays, and marathons
-- **Multi-language** -- English, Spanish, Valencian, and Chinese
-- **Day/Night Mode** -- Toggle between light and dark map themes
-- **Responsive Design** -- Works on desktop and mobile devices
-  
-## Architecture
+### Feature ablation
+
+Seven LightGBM models with identical hyperparameters, identical SMOTE-balanced training data and the same threshold optimization. Only the feature set changes. Evaluated on the 2025 test set; "congested" is the `no_fluido` class.
+
+| Configuration | Threshold | Precision (congested) | Recall (congested) | F1 (congested) | Macro F1 |
+|---|---|---|---|---|---|
+| Weather only | 0.60 | 0.0194 | 0.0184 | 0.0189 | 0.5012 |
+| All original features except `estado_lag_4` | 0.44 | 0.2015 | 0.1695 | 0.1841 | 0.5861 |
+| `estado_lag_4` only | 0.38 | 0.5722 | 0.5717 | 0.5719 | 0.7823 |
+| All original features (39) | 0.69 | 0.6300 | 0.5463 | 0.5852 | 0.7893 |
+| All original features except weather | 0.68 | 0.6001 | 0.5350 | 0.5657 | 0.7812 |
+| All features + new temporal & lag features | 0.83 | 0.8167 | 0.5354 | 0.6468 | 0.8214 |
+| **Temporal & lag features + road ID (final)** | **0.87** | **0.7427** | **0.5869** | **0.6557** | **0.8256** |
+
+The richest model scores slightly below the final one: under SMOTE-balanced training, the weakly informative weather, event and season features add more noise than signal.
+
+## Data
+
+| Source | Content |
+|---|---|
+| Valencia City Council open data | Traffic state of each road segment every 15 minutes, December 2022 to September 2025 |
+| AEMET | Daily weather: mean, minimum and maximum temperature, precipitation, sunshine hours |
+| Events calendar (built by the team) | Public and school holidays, Fallas and mascletàs, Valencia CF and Levante UD home matches, concerts, marathons, elections, demonstrations, EBAU exams, San Juan and more |
+
+Preparation:
+
+- The merged dataset has about **5.4 million observations** (2023–2025) across 144 road segments.
+- Hours from 01:00 to 06:00 were removed because traffic is consistently fluid then. Peak hours keep 15-minute intervals; off-peak hours were aggregated to 30-minute intervals.
+- The target is binary: `no_fluido` (congested) vs `fluido`. Only about 1% of observations are congested.
+- Temporal split: train on 2023–2024, test on 2025.
+- The one apparent outlier, the maximum temperature on 10 August 2023, is real (one of the hottest days in recent years), so it was kept.
+
+## Method
+
+The project follows **CRISP-DM**. Features fall into five groups:
+
+- **Temporal:** minute of day; sine/cosine encodings of time of day, month and day of month; week of year; weekend, rush-hour and night flags.
+- **Categorical:** road segment and day of week (label-encoded).
+- **Weather:** `tmed`, `tmin`, `tmax`, `prec`, `sol` (standardized).
+- **Seasonal and event flags:** 4 season flags and 14 event flags.
+- **Lag features:** the same road's traffic state one hour earlier (`estado_lag_4`), plus six history features: rolling means over 1–2 h, 1–3 h and 2–3 h before, the trend between them, the length of the current congestion streak and the time since the last congestion. All are anchored at least one hour back, so nothing leaks into a 1-hour-ahead prediction.
+
+Training and evaluation:
+
+- **Class balance:** the training set is SMOTE-balanced to 200K majority + 200K synthetic minority samples.
+- **Threshold:** the decision threshold is tuned for Macro F1. Because SMOTE trains on a 50/50 split while real traffic is about 99/1, the best threshold sits far above 0.5.
+- **Calibration (Brier score, lower is better):** LightGBM 0.0201, HistGradientBoosting 0.0209, CatBoost 0.0255, GradientBoosting 0.0423, XGBoost 0.0643. LightGBM was chosen as the primary model.
+
+## Final model
+
+| Group | Features |
+|---|---|
+| Lag | `estado_lag_4`, `estado_rolling_4_to_8`, `estado_rolling_4_to_12`, `estado_rolling_8_to_12`, `estado_trend`, `consecutive_congested_steps`, `time_since_last_congestion` |
+| Time | `minutes`, `hour_sin`, `hour_cos`, `month`, `month_sin`, `month_cos`, `day`, `day_sin`, `day_cos`, `week_of_year` |
+| Flags | `is_weekend`, `is_rush_hour`, `is_night` |
+| Calendar | `Day_of_week` (label-encoded) |
+| Road | `Denominació / Denominación` (road segment, label-encoded) |
+
+| Hyperparameter | Value |
+|---|---|
+| `num_leaves` | 63 |
+| `learning_rate` | 0.05 |
+| `max_depth` | -1 |
+| `min_child_samples` | 50 |
+| `subsample` | 0.8 |
+| `colsample_bytree` | 0.8 |
+| `reg_alpha` / `reg_lambda` | 0.1 / 0.1 |
+| `num_boost_round` | 500 |
+
+Results on the 2025 test set (1,265,734 observations, threshold 0.87):
+
+| Metric | Value |
+|---|---|
+| Macro F1 | 0.8256 |
+| Precision (congested) | 0.7427 |
+| Recall (congested) | 0.5869 |
+| F1 (congested) | 0.6557 |
+| Precision (fluid) | 0.99 |
+| Recall (fluid) | 1.00 |
+
+## Web app
+
+- Interactive Leaflet.js map with color-coded congestion risk for each road segment
+- Pick a date, time, duration, weather preset (clear, cloudy, rainy) and events (school holidays, Fallas, marathon)
+- English, Spanish, Valencian and Chinese
+- Light and dark map themes
+- Works on desktop and mobile
+
+> **Note:** the web app in this repository (`app3.py`) still serves an earlier model, `lightgbm_lag_v2_model.txt`. It uses 44 features, including weather, event flags and 15-minute lags (`estado_lag_1`, `estado_lag_2`), and predicts in 15-minute steps. With no live traffic feed, its lag features are seeded with historical average congestion per road, day of week and time slot. The final 1-hour-ahead model above lives in `model2.ipynb` and has not been exported to the app yet.
+
+### Deployment on AWS
 
 ```
-User (Browser)
-     |
-     v
-  Nginx (port 80) --> Gunicorn --> Flask API (app3.py)
-                                      |
-                              LightGBM Model (.txt)
-                              Preprocessors (.joblib)
-                              Historical Seeds (.joblib)
+Browser
+   │
+   ▼
+Route 53 (DNS)
+   │
+   ▼
+EC2 instance (Ubuntu 22.04)
+   │
+   ▼
+Nginx (port 80/443) ──► Gunicorn ──► Flask API (app3.py)
+                                        │
+                                LightGBM model (.txt)
+                                Preprocessors (.joblib)
 ```
 
-## Tech Stack
+- Gunicorn serves the Flask API as a production WSGI server.
+- Nginx is the reverse proxy, with HTTPS from Let's Encrypt (Certbot).
+- A systemd service keeps the app running and restarts it after a reboot.
+- Route 53 A records point the domain at the EC2 instance's public IP.
 
-| Component       | Technology                          |
-|-----------------|-------------------------------------|
-| ML Model        | LightGBM (gradient boosting)        |
-| Data Balancing  | SMOTE + undersampling               |
-| Backend         | Flask + Gunicorn                    |
-| Frontend        | HTML/CSS/JS + Leaflet.js            |
-| Map Tiles       | Jawg Maps (Light & Dark)            |
-| Deployment      | AWS EC2 + Nginx + Route 53          |
-
-## Project Structure
-
-```
-.
-├── app3.py                      # Flask API server
-├── website3.html                # Frontend (map + controls)
-├── datos_trafico.js             # Road segment polyline coordinates
-├── smartvia-logo-light.svg      # App logo (SVG)
-├── smartvia.png                 # App logo (PNG)
-├── train_lightgbm_lag_v2.py     # Model training script
-├── save_preprocessors_lag.py    # Generates .joblib preprocessors
-├── lightgbm_lag_v2_model.txt    # Trained LightGBM model
-├── historical.joblib            # Historical traffic probabilities
-├── historical_fallback.joblib   # Fallback probabilities
-├── le_denom.joblib              # Road name label encoder
-├── le_day.joblib                # Day of week label encoder
-├── scaler_lag.joblib            # Feature scaler
-├── known_roads.joblib           # List of 144 known roads
-├── DatasetFestivos.csv          # Holidays and events dataset
-├── climatologia_2023_2025.csv   # Weather data (AEMET)
-└── dataset_final.zip            # Full training dataset (compressed)
-```
-
-## Installation
-
-### Local Setup
+### Run the web app locally
 
 ```bash
 git clone https://github.com/jiale203/SmartVia-VLC---Valencia-Traffic-Predictor.git
-cd smartvia-vlc
-
-pip install flask flask-cors pandas numpy lightgbm joblib scikit-learn gunicorn
-
+cd SmartVia-VLC---Valencia-Traffic-Predictor
+pip install flask flask-cors pandas numpy lightgbm joblib scikit-learn
 python app3.py
 ```
 
-Visit `http://localhost:5002` in your browser.
+Then open `http://localhost:5002`.
 
-## AWS Deployment
+## Reproduce the analysis
 
-  The application is deployed on **AWS EC2** with the following architecture:
-```
-  Client (Browser)
-        │
-        ▼
-    Route 53 (DNS)
-        │
-        ▼
-    EC2 Instance (Ubuntu 22.04)
-        │
-        ▼
-    Nginx (port 80/443) ──► Gunicorn ──► Flask API (app3.py)
-                                              │
-                                      LightGBM Model
-                                      Preprocessors (.joblib)
-```
-  - Gunicorn serves the Flask API as a production WSGI server
-  - Nginx acts as a reverse proxy, forwarding HTTP/HTTPS requests to the application
-  - A systemd service keeps the application running and auto-restarts on server reboot
-  - Domain managed through AWS Route 53 with A records pointing to the EC2 public IP
-  - SSL/TLS encryption enabled via Let's Encrypt (Certbot) for secure HTTPS access
+1. Unzip `dataset_final.zip` to get `dataset_final.csv` (about 730 MB).
+2. Install the dependencies: `pandas numpy scipy scikit-learn imbalanced-learn lightgbm xgboost catboost matplotlib seaborn`.
+3. Open `model2.ipynb`. It was written for Google Colab, so change the `read_csv` path to your copy of `dataset_final.csv`.
 
-## Model Details
+## Repository structure
 
-| Parameter          | Value                                     |
-|--------------------|-------------------------------------------|
-| Algorithm          | LightGBM (gradient boosted trees)         |
-| Training Data      | ~400K samples (SMOTE balanced)            |
-| Features           | 44 (temporal, weather, lag, events)        |
-| Lag Features       | estado_lag_1, lag_2, lag_4, rolling_4/8    |
-| Congestion Threshold | 0.87 probability                         |
-| Macro F1 Score     | 0.9051                                    |
-| Prediction Interval | 15 minutes                               |
+| File | Purpose |
+|---|---|
+| `model2.ipynb` | Final analysis from the report: EDA, model comparison, calibration, feature ablation and final model |
+| `PROYECTOIII_TRAFICO_FINAL.ipynb` | Traffic data preparation: unpacks, counts and merges the daily traffic files |
+| `PROYECTOIII_TRAFICO2_Bueno.ipynb` | Aggregates the filtered traffic data (produces `Agregacion2.csv`) |
+| `c.py` | Joins the merged traffic and weather data with the events calendar |
+| `climatologia_2023_2025.csv` | AEMET weather data |
+| `DatasetFestivos.csv` | Holidays and events calendar |
+| `dataset_final.zip` | Final merged dataset |
+| `train_lightgbm_lag_v2.py` | Trains the earlier v2 model used by the web app |
+| `save_preprocessors_lag.py` | Builds the encoders, scaler and historical lag tables the app loads |
+| `lightgbm_lag_v2_model.txt` | Trained v2 model used by the web app |
+| `*.joblib` | Encoders, scaler, list of known roads and historical congestion tables |
+| `app3.py` | Flask API |
+| `website3.html`, `datos_trafico.js` | Front end (Leaflet map) and road-segment coordinates |
+| `smartvia.png`, `smartvia-logo-light.svg`, `p1.jpeg` | Logo and screenshot |
 
-## Feature Importance (Top 15 — Gain)
+## Limitations
 
-  | Rank | Feature | Importance |
-  |------|---------|-----------|
-  | 1 | `estado_rolling_8` | 2,092,787 |
-  | 2 | `estado_lag_1` | 970,963 |
-  | 3 | `hour_sin` | 406,024 |
-  | 4 | `hour_cos` | 348,116 |
-  | 5 | `estado_rolling_4` | 220,608 |
-  | 6 | `estado_count_4` | 218,760 |
-  | 7 | `Denominació / Denominación` | 213,892 |
-  | 8 | `minutes` | 143,684 |
-  | 9 | `School_holiday` | 93,708 |
-  | 10 | `Day_of_week` | 66,664 |
-  | 11 | `is_night` | 61,841 |
-  | 12 | `week_of_year` | 54,775 |
-  | 13 | `tmin` | 49,912 |
-  | 14 | `tmed` | 47,732 |
-  | 15 | `day_cos` | 45,081 |
+- **Probabilities are not calibrated.** The tuned threshold fixes decisions, but showing users a "70% chance of congestion" would need post-hoc calibration such as isotonic regression or Platt scaling.
+- **No live traffic data.** The app approximates lag features with historical averages, so its predictions cannot react to what is happening on the road right now.
+- **Night gap.** Data from 01:00 to 06:00 was removed. In training, early-morning lag features jump back to the previous night; in the app, the historical lookup for those hours finds no data.
+- **Manual inputs.** Weather is chosen from presets and events must be selected by the user.
 
-  Lag features dominate the top positions, with `estado_rolling_8` (2-hour rolling average) contributing more than twice
-  the importance of the next feature. Temporal features (`hour_sin`, `hour_cos`, `minutes`) rank highly, confirming
-  that time of day is a strong predictor of congestion. Weather and event features have lower but meaningful
-  contributions.
-  
-## Data Sources
+## Future work
 
-- **Traffic Data** -- Ajuntament de Valencia open data portal (real-time traffic sensors)
-- **Weather Data** -- AEMET (Agencia Estatal de Meteorologia)
-- **Holiday/Event Data** -- Manually curated calendar of local events
+- Connect a live traffic feed from the city council to replace the historical lag seeds.
+- Export the final 1-hour-ahead model into the web app.
+- Try sequential architectures to see whether more temporal context improves robustness.
+- Add route recommendations that avoid congested segments.
 
+## Team
 
-## Data preprocessing
+Miguel Ángel Camuñas Castelló, Lucía Fuentes Pons, Vicente Llacer Llorca, Ivette Mahmoud Yousef Puig, Jiale Mao, María Martínez Fernández
 
-```
-  Notebooks → Agregacion2.csv (traffic) + climatologia_2023_2025.csv (weather)
-                                        ↓
-                             merge_traffic_weather.py → datos_combinados_limpios.csv (traffic + weather merged)
-                                                                        ↓
-                                                                        c.py → dataset_final.csv (+ holidays) → dataset_final.zip
-  ```        
+Team repository: [Llacerino/PROYECTOIII-SMARTVIAVLC](https://github.com/Llacerino/PROYECTOIII-SMARTVIAVLC)
 
-## Feature variables
+## References
 
-  **Road Identifier (1)**
-
-  | Feature | Description |
-  |---------|-------------|
-  | `Denominació_/_Denominación` | Encoded name of the road segment (144 unique roads across Valencia) |
-
-  **Weather (5)**
-
-  | Feature | Description |
-  |---------|-------------|
-  | `tmed` | Mean daily temperature (°C) |
-  | `tmin` | Minimum daily temperature (°C) |
-  | `tmax` | Maximum daily temperature (°C) |
-  | `prec` | Daily precipitation (mm) |
-  | `sol` | Hours of sunshine |
-
-  **Temporal (14)**
-
-  | Feature | Description |
-  |---------|-------------|
-  | `minutes` | Minutes elapsed since midnight (0–1440) |
-  | `hour_sin`, `hour_cos` | Cyclical encoding of the hour to capture periodic patterns |
-  | `month`, `month_sin`, `month_cos` | Month of the year with cyclical encoding |
-  | `day`, `day_sin`, `day_cos` | Day of the month with cyclical encoding |
-  | `Day_of_week` | Encoded day of the week (lunes–domingo) |
-  | `week_of_year` | Week number within the year |
-  | `is_weekend` | Binary flag for Saturday/Sunday |
-  | `is_rush_hour` | Binary flag for peak traffic hours (7–9h and 17–20h) |
-  | `is_night` | Binary flag for nighttime hours (22–6h) |
-
-  **Seasons (4)**
-
-  | Feature | Description |
-  |---------|-------------|
-  | `Summer`, `Winter`, `Autumn`, `Spring` | Binary flags indicating the current season |
-
-  **Events (13)**
-
-  | Feature | Description |
-  |---------|-------------|
-  | `Public_holiday`, `School_holiday` | Binary flags for public and school holidays |
-  | `Fallas`, `Mascletá/Crida` | Binary flags for Valencia's Fallas festival and its daily firecracker event |
-  | `Football_Matches` | Binary flag for local football match days |
-  | `Marathons` | Binary flag for marathon events |
-  | `Festival_de_les_arts`, `Davis_Cup`, `Elections`, `Demonstrations`, `University_Entrance_Exams`, `BigSound_Concerts`,
-  `Roig_Arena_Events`, `San_Juan` | Binary flags for other local events |
-
-  **Lag Features — Historical Traffic State (6)**
-
-  | Feature | Description |
-  |---------|-------------|
-  | `estado_lag_1` | Traffic state 15 minutes prior |
-  | `estado_lag_2` | Traffic state 30 minutes prior |
-  | `estado_lag_4` | Traffic state 1 hour prior |
-  | `estado_rolling_4` | Rolling average of traffic state over the last 4 intervals (1 hour) |
-  | `estado_rolling_8` | Rolling average of traffic state over the last 8 intervals (2 hours) |
-  | `estado_count_4` | Count of congested intervals in the last 4 intervals (1 hour) |
-
-
-## Model Explaination
-
-  - The LightGBM model is trained on ~400,000 samples from traffic sensor data collected between 2023–2024, with 2025
-  reserved as the test set
-  - The dataset is heavily imbalanced (99% fluido vs 1% no_fluido), so a combination of random undersampling and SMOTE
-  balances the training data to a 50/50 distribution
-  - The model is trained for 500 boosting rounds using binary log-loss as the objective, with L1/L2 regularization to
-  prevent overfitting
-  - Lag features (estado_lag_1, estado_rolling_8, estado_count_4, etc.) are engineered by shifting and aggregating past
-  traffic states within each road segment to capture short-term temporal dependencies
-  - Continuous variables (temperature, precipitation, sunshine, cyclical time encodings) are standardized using
-  StandardScaler; categorical variables (road names, days of the week) are encoded using LabelEncoder
-  - After training, save_preprocessors_lag.py generates all preprocessing artifacts needed for deployment:
-    - Fitted LabelEncoder for road names and days of the week
-    - Fitted StandardScaler for continuous features
-    - List of 144 known roads
-    - Two historical probability tables containing average congestion rates per road, day of week, and time slot — used
-  to seed lag features during prediction
-  - All artifacts are serialized using joblib and saved as .joblib files, which Flask loads at startup to transform raw
-  user inputs into the exact feature format the model expects, ensuring consistency between training and prediction
-
-  ## Evaluation Results (Test Set — 2025)
-
-  Optimal threshold determined at **0.87** via threshold sweep optimization.
-  
-  The default classification threshold of 0.5 is not optimal for this model due to the use of SMOTE during training.
-  SMOTE balances the training data to a 50/50 distribution, but the real data is approximately 99% fluido and 1%
-  no_fluido. As a result, the model's output probabilities are calibrated to the artificial balanced distribution rather
-  than the real-world distribution, causing it to over-predict congestion at lower thresholds.
-
-  To find the optimal threshold, a sweep was performed across values from 0.05 to 0.99 in increments of 0.01, evaluating 
-  Macro F1 at each step. The optimal threshold was found at **0.87**, improving Macro F1 from 0.8762 (at 0.5) to
-  **0.9051**, while reducing false alarms from 7,929 to 3,401.
-
-  | Threshold | Precision (NF) | Recall (NF) | Macro F1 | False Alarms | Missed |
-  |-----------|---------------|-------------|----------|-------------|--------|
-  | 0.50 | 0.69 | 0.84 | 0.8762 | 7,929 | 3,509 |
-  | **0.87** | **0.83** | **0.79** | **0.9051** | **3,401** | **4,376** |
-
-
-  | Metric | Fluido (0) | No Fluido (1) |
-  |--------|-----------|---------------|
-  | Precision | 1.00 | 0.83 |
-  | Recall | 1.00 | 0.79 |
-  | F1-Score | 1.00 | 0.81 |
-
-  | Overall Metric | Value |
-  |----------------|-------|
-  | Accuracy | 0.99 |
-  | Macro F1 Score | 0.9051 |
-  | Optimal Threshold | 0.87 |
-
-  | Confusion Matrix | Predicted Fluido | Predicted No Fluido |
-  |------------------|-----------------|-------------------|
-  | **Actual Fluido** | 1,241,010 | 3,401 |
-  | **Actual No Fluido** | 4,376 | 16,947 |
-
-  
-  ## Limitations
-
-  - **Probability Calibration**: The model is trained on SMOTE-balanced data (50/50), but the real distribution is
-  approximately 99% fluido / 1% no_fluido. This means the model's output probabilities are calibrated to the artificial
-  distribution rather than reality, requiring a higher decision threshold (0.8) to compensate
-  - **No Real-Time Data**: The application does not have access to live traffic sensors. Instead, lag features are
-  approximated using historical average congestion probabilities per road, day of week, and time slot. Predictions would
-   be more accurate with real-time traffic feeds
-  - **Night Data Gap**: Traffic data between 1:00–6:00 was removed during preprocessing due to sensor inactivity. This
-  creates a mismatch in lag features at 7:00 AM — during training, the model references late-night data, while during
-  deployment, the historical lookup attempts to retrieve values from the deleted time range
-  - **Static Weather Presets**: Weather conditions are selected from fixed presets (clear, cloudy, rainy) rather than
-  fetched from a live weather API, which limits prediction accuracy for unusual weather conditions
-  - **Event Detection**: Special events (Fallas, marathons, etc.) must be manually selected by the user rather than
-  being automatically detected from an external calendar
-
-  ## Future Work
-
-  - Integrate a **live traffic API** from the Ajuntament de Valencia to replace historical seeds with real-time lag
-  features
-  - Connect a **real-time weather API** (AEMET OpenData) to automatically set weather parameters based on current or
-  forecasted conditions
-  - Add **route recommendation** functionality to suggest the least congested path between two points
+- Cools, M., Moons, E., & Wets, G. (2010). Assessing the Impact of Weather on Traffic Intensity. *Weather, Climate, and Society*, 2(1), 60–68.
+- Abduljabbar, R., Dia, H., & Liyanage, S. (2024). Machine Learning Models for Traffic Prediction on Arterial Roads Using Traffic Features and Weather Information. *Applied Sciences*, 14(23), 11047.
+- Li, Y., Yu, R., Shahabi, C., & Liu, Y. (2017). Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic Forecasting. arXiv:1707.01926.
 
 ## License
 
-This project is licensed under the [GNU License](LICENSE).
-
-## Authors
-- Jiale Mao
-- Vicente Llacer Llorca
-- Lucia Fuentes Pons
-- Miguel Angel Carrañas
-- Ivette Mahmoud Yousef
-- Maria Martinez
+This project is licensed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for details.
