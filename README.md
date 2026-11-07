@@ -202,7 +202,6 @@ Then open `http://localhost:5002`.
 
 Jiale Mao, Vicente Llacer Llorca, Miguel Ángel Camuñas Castelló, Lucía Fuentes Pons, Ivette Mahmoud Yousef Puig, María Martínez Fernández
 
-Team repository: [Llacerino/PROYECTOIII-SMARTVIAVLC](https://github.com/Llacerino/PROYECTOIII-SMARTVIAVLC)
 
 ## References
 
